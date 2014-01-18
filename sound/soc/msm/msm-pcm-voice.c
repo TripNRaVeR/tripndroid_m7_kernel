@@ -29,11 +29,6 @@
 #include "msm-pcm-voice.h"
 #include "qdsp6/q6voice.h"
 
-#undef pr_info
-#undef pr_err
-#define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
-#define pr_err(fmt, ...) pr_aud_err(fmt, ##__VA_ARGS__)
-
 static struct msm_voice voice_info[VOICE_SESSION_INDEX_MAX];
 
 static struct snd_pcm_hardware msm_pcm_hardware = {
@@ -49,10 +44,10 @@ static struct snd_pcm_hardware msm_pcm_hardware = {
 	.channels_max =         1,
 
 	.buffer_bytes_max =     4096 * 2,
-	.period_bytes_min =     4096,
+	.period_bytes_min =     2048,
 	.period_bytes_max =     4096,
 	.periods_min =          2,
-	.periods_max =          2,
+	.periods_max =          4,
 
 	.fifo_size =            0,
 };
@@ -65,6 +60,7 @@ static int is_volte(struct msm_voice *pvolte)
 }
 
 static int is_voice2(struct msm_voice *pvoice2)
+
 {
 	if (pvoice2 == &voice_info[VOICE2_SESSION_INDEX])
 		return true;
@@ -105,15 +101,15 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	if (!strncmp("VoLTE", substream->pcm->id, 5)) {
 		voice = &voice_info[VOLTE_SESSION_INDEX];
 		pr_debug("%s: Open VoLTE Substream Id=%s\n",
-				__func__, substream->pcm->id);
+			 __func__, substream->pcm->id);
 	} else if (!strncmp("Voice2", substream->pcm->id, 6)) {
 		voice = &voice_info[VOICE2_SESSION_INDEX];
 		pr_debug("%s: Open Voice2 Substream Id=%s\n",
-				__func__, substream->pcm->id);
+			 __func__, substream->pcm->id);
 	} else {
 		voice = &voice_info[VOICE_SESSION_INDEX];
 		pr_debug("%s: Open VOICE Substream Id=%s\n",
-				__func__, substream->pcm->id);
+			 __func__, substream->pcm->id);
 	}
 	mutex_lock(&voice->lock);
 
@@ -325,8 +321,9 @@ static int msm_voice2_volume_put(struct snd_kcontrol *kcontrol,
 {
 	int volume = ucontrol->value.integer.value[0];
 	pr_debug("%s: volume: %d\n", __func__, volume);
+
 	voc_set_rx_vol_index(voc_get_session_id(VOICE2_SESSION_NAME),
-						RX_PATH, volume);
+			     RX_PATH, volume);
 	return 0;
 }
 
@@ -470,6 +467,9 @@ static int msm_voice_tty_mode_put(struct snd_kcontrol *kcontrol,
 	voc_set_tty_mode(voc_get_session_id(VOICE_SESSION_NAME), tty_mode);
 
 	voc_set_tty_mode(voc_get_session_id(VOICE2_SESSION_NAME), tty_mode);
+
+	voc_set_tty_mode(voc_get_session_id(VOLTE_SESSION_NAME), tty_mode);
+
 	return 0;
 }
 static int msm_voice_widevoice_put(struct snd_kcontrol *kcontrol,
@@ -480,6 +480,8 @@ static int msm_voice_widevoice_put(struct snd_kcontrol *kcontrol,
 	pr_debug("%s: wv enable=%d\n", __func__, wv_enable);
 
 	voc_set_widevoice_enable(voc_get_session_id(VOICE_SESSION_NAME),
+				 wv_enable);
+	voc_set_widevoice_enable(voc_get_session_id(VOICE2_SESSION_NAME),
 				 wv_enable);
 	return 0;
 }
@@ -501,7 +503,9 @@ static int msm_voice_slowtalk_put(struct snd_kcontrol *kcontrol,
 	pr_debug("%s: st enable=%d\n", __func__, st_enable);
 
 	voc_set_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-			MODULE_ID_VOICE_MODULE_ST, st_enable);
+			  MODULE_ID_VOICE_MODULE_ST, st_enable);
+	voc_set_pp_enable(voc_get_session_id(VOICE2_SESSION_NAME),
+			  MODULE_ID_VOICE_MODULE_ST, st_enable);
 
 	return 0;
 }
@@ -523,7 +527,9 @@ static int msm_voice_fens_put(struct snd_kcontrol *kcontrol,
 	pr_debug("%s: fens enable=%d\n", __func__, fens_enable);
 
 	voc_set_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-			MODULE_ID_VOICE_MODULE_FENS, fens_enable);
+			  MODULE_ID_VOICE_MODULE_FENS, fens_enable);
+	voc_set_pp_enable(voc_get_session_id(VOICE2_SESSION_NAME),
+			  MODULE_ID_VOICE_MODULE_FENS, fens_enable);
 
 	return 0;
 }
@@ -561,12 +567,12 @@ static struct snd_kcontrol_new msm_voice_controls[] = {
 	SOC_SINGLE_EXT("VoLTE Rx Volume", SND_SOC_NOPM, 0, 5, 0,
 				msm_volte_volume_get, msm_volte_volume_put),
 	SOC_SINGLE_EXT("Voice2 Rx Device Mute", SND_SOC_NOPM, 0, 1, 0,
-				msm_voice2_rx_device_mute_get,
-				msm_voice2_rx_device_mute_put),
+		       msm_voice2_rx_device_mute_get,
+		       msm_voice2_rx_device_mute_put),
 	SOC_SINGLE_EXT("Voice2 Tx Mute", SND_SOC_NOPM, 0, 1, 0,
-				msm_voice2_mute_get, msm_voice2_mute_put),
+		       msm_voice2_mute_get, msm_voice2_mute_put),
 	SOC_SINGLE_EXT("Voice2 Rx Volume", SND_SOC_NOPM, 0, 5, 0,
-				msm_voice2_volume_get, msm_voice2_volume_put),
+		       msm_voice2_volume_get, msm_voice2_volume_put),
 };
 
 static struct snd_pcm_ops msm_pcm_ops = {

@@ -46,11 +46,11 @@ struct snd_msm_volume {
 static struct snd_msm_volume multi_ch_pcm_audio = {NULL, 0x2000};
 
 #define PLAYBACK_NUM_PERIODS		8
-#define PLAYBACK_MAX_PERIOD_SIZE	4032
+#define PLAYBACK_MAX_PERIOD_SIZE	12288
 #define PLAYBACK_MIN_PERIOD_SIZE        256
 #define CAPTURE_NUM_PERIODS		16
 #define CAPTURE_MIN_PERIOD_SIZE		320
-#define CAPTURE_MAX_PERIOD_SIZE		5376
+#define CAPTURE_MAX_PERIOD_SIZE		12288
 
 static struct snd_pcm_hardware msm_pcm_hardware_capture = {
 	.info =                 (SNDRV_PCM_INFO_MMAP |
@@ -79,12 +79,12 @@ static struct snd_pcm_hardware msm_pcm_hardware_playback = {
 				SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
 	.formats =              SNDRV_PCM_FMTBIT_S16_LE
-				| SNDRV_PCM_FMTBIT_S24_LE,
+				| SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE,
 	.rates =                SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT,
 	.rate_min =             8000,
 	.rate_max =             48000,
 	.channels_min =         1,
-	.channels_max =         6,
+	.channels_max =         8,
 	.buffer_bytes_max =     PLAYBACK_NUM_PERIODS * PLAYBACK_MAX_PERIOD_SIZE,
 	.period_bytes_min =     PLAYBACK_MIN_PERIOD_SIZE,
 	.period_bytes_max =     PLAYBACK_MAX_PERIOD_SIZE,
@@ -262,8 +262,8 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 
 	pr_debug("Samp_rate = %d\n", prtd->samp_rate);
 	pr_debug("Channel = %d\n", prtd->channel_mode);
-	ret = q6asm_enc_cfg_blk_pcm(prtd->audio_client, prtd->samp_rate,
-					prtd->channel_mode);
+	ret = q6asm_enc_cfg_blk_multi_ch_pcm(prtd->audio_client,
+		 prtd->samp_rate, prtd->channel_mode);
 	if (ret < 0)
 		pr_debug("%s: cmd cfg pcm was block failed", __func__);
 
@@ -358,7 +358,8 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		runtime->hw = msm_pcm_hardware_capture;
-		ret = q6asm_open_read(prtd->audio_client, FORMAT_LINEAR_PCM);
+		ret = q6asm_open_read(prtd->audio_client,
+				FORMAT_MULTI_CHANNEL_LINEAR_PCM);
 		if (ret < 0) {
 			pr_err("%s: pcm in open failed\n", __func__);
 			q6asm_audio_client_free(prtd->audio_client);
@@ -371,9 +372,8 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 
 	prtd->session_id = prtd->audio_client->session;
 	msm_pcm_routing_reg_phy_stream(soc_prtd->dai_link->be_id,
-	        prtd->audio_client->perf_mode,
+			prtd->audio_client->perf_mode,
 			prtd->session_id, substream->stream);
-
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		prtd->cmd_ack = 1;
 

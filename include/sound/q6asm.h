@@ -149,6 +149,7 @@ struct audio_client {
 	struct mutex	       cmd_lock;
 
 	atomic_t		cmd_state;
+	atomic_t		cmd_close_state;
 	atomic_t		time_flag;
 	atomic_t		nowait_cmd_cnt;
 	wait_queue_head_t	cmd_wait;
@@ -187,7 +188,8 @@ int q6asm_audio_client_buf_free_contiguous(unsigned int dir,
 
 int q6asm_open_read(struct audio_client *ac, uint32_t format);
 int q6asm_open_read_v2_1(struct audio_client *ac, uint32_t format);
-int q6asm_open_read_compressed(struct audio_client *ac, uint32_t format);
+int q6asm_open_read_compressed(struct audio_client *ac,
+			 uint32_t frames_per_buffer, uint32_t meta_data_mode);
 
 int q6asm_open_write(struct audio_client *ac, uint32_t format);
 int q6asm_open_write_v2(struct audio_client *ac, uint32_t format,
@@ -199,6 +201,8 @@ int q6asm_open_read_write(struct audio_client *ac,
 			uint32_t rd_format,
 			uint32_t wr_format);
 
+int q6asm_open_loopack(struct audio_client *ac);
+
 int q6asm_write(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
 				uint32_t lsw_ts, uint32_t flags);
 int q6asm_write_nolock(struct audio_client *ac, uint32_t len, uint32_t msw_ts,
@@ -208,6 +212,9 @@ int q6asm_async_write(struct audio_client *ac,
 					  struct audio_aio_write_param *param);
 
 int q6asm_async_read(struct audio_client *ac,
+					  struct audio_aio_read_param *param);
+
+int q6asm_async_read_compressed(struct audio_client *ac,
 					  struct audio_aio_read_param *param);
 
 int q6asm_read(struct audio_client *ac);
@@ -285,7 +292,7 @@ int q6asm_media_format_block_pcm_format_support(struct audio_client *ac,
 			uint32_t rate, uint32_t channels, uint16_t bit_width);
 
 int q6asm_media_format_block_multi_ch_pcm(struct audio_client *ac,
-				uint32_t rate, uint32_t channels, uint16_t bit_width);
+				uint32_t rate, uint32_t channels);
 
 int q6asm_media_format_block_multi_ch_pcm_format_support(
 		struct audio_client *ac, uint32_t rate, uint32_t channels,
@@ -302,6 +309,9 @@ int q6asm_media_format_block_wma(struct audio_client *ac,
 
 int q6asm_media_format_block_wmapro(struct audio_client *ac,
 			void *cfg);
+
+int q6asm_media_format_block_amrwbplus(struct audio_client *ac,
+					struct asm_amrwbplus_cfg *cfg);
 
 int q6asm_equalizer(struct audio_client *ac, void *eq);
 

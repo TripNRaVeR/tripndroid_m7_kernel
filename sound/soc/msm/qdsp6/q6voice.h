@@ -13,7 +13,7 @@
 #define __QDSP6VOICE_H__
 
 #include <mach/qdsp6v2/apr.h>
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 
 #define MAX_VOC_PKT_SIZE 642
 #define SESSION_NAME_LEN 21
@@ -21,6 +21,20 @@
 #define VOC_REC_UPLINK		0x00
 #define VOC_REC_DOWNLINK	0x01
 #define VOC_REC_BOTH		0x02
+
+/* Needed for VOIP & VOLTE support */
+/* Due to Q6 memory map issue */
+enum {
+	VOIP_CAL,
+	VOLTE_CAL,
+	NUM_VOICE_CAL_BUFFERS
+};
+
+enum {
+	CVP_CAL,
+	CVS_CAL,
+	NUM_VOICE_CAL_TYPES
+};
 
 struct voice_header {
 	uint32_t id;
@@ -432,7 +446,7 @@ struct cvs_start_record_cmd {
 
 #define VSS_IVOCPROC_CMD_SET_DEVICE			0x000100C4
 
-#define VSS_IVOCPROC_CMD_SET_DEVICE_V2		0x000112C6
+#define VSS_IVOCPROC_CMD_SET_DEVICE_V2			0x000112C6
 
 #define VSS_IVOCPROC_CMD_SET_VP3_DATA			0x000110EB
 
@@ -476,6 +490,7 @@ struct cvs_start_record_cmd {
 #define VOICE_CMD_GET_PARAM				0x00011007
 #define VOICE_EVT_GET_PARAM_ACK				0x00011008
 
+/* Default AFE port ID. Applicable to Tx and Rx. */
 #define VSS_IVOCPROC_PORT_ID_NONE			0xFFFF
 
 struct vss_ivocproc_cmd_create_full_control_session_t {
@@ -498,21 +513,30 @@ struct vss_ivocproc_cmd_set_device_t {
 	uint32_t rx_topology_id;
 } __packed;
 
+/* Internal EC */
 #define VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING 0x00010F7C
 
+/* External EC */
 #define VSS_IVOCPROC_VOCPROC_MODE_EC_EXT_MIXING 0x00010F7D
 
 struct vss_ivocproc_cmd_set_device_v2_t {
 	uint16_t tx_port_id;
-	
+	/* Tx device port ID to which the vocproc connects. */
 	uint32_t tx_topology_id;
-	
+	/* Tx path topology ID. */
 	uint16_t rx_port_id;
-	
+	/* Rx device port ID to which the vocproc connects. */
 	uint32_t rx_topology_id;
-	
+	/* Rx path topology ID. */
 	uint32_t vocproc_mode;
+	/* Vocproc mode. The supported values:
+	 * VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING - 0x00010F7C
+	 * VSS_IVOCPROC_VOCPROC_MODE_EC_EXT_MIXING - 0x00010F7D
+	 */
 	uint16_t ec_ref_port_id;
+	/* Port ID to which the vocproc connects for receiving
+	 * echo cancellation reference signal.
+	 */
 } __packed;
 
 struct vss_ivocproc_cmd_register_calibration_data_t {
@@ -661,9 +685,14 @@ struct voice_data {
 };
 
 struct cal_mem {
-	struct ion_handle *handle;
-	uint32_t phy;
-	void *buf;
+	/* Physical Address */
+	uint32_t paddr;
+	/* Kernel Virtual Address */
+	uint32_t kvaddr;
+};
+
+struct cal_data {
+	struct cal_mem	cal_data[NUM_VOICE_CAL_TYPES];
 };
 
 #define MAX_VOC_SESSIONS 4
@@ -684,9 +713,9 @@ struct common_data {
 	
 	void *apr_q6_cvp;
 
-	struct ion_client *client;
-	struct cal_mem cvp_cal;
-	struct cal_mem cvs_cal;
+	struct ion_client *ion_client;
+	struct ion_handle *ion_handle;
+	struct cal_data voice_cal[NUM_VOICE_CAL_BUFFERS];
 
 	struct mutex common_lock;
 

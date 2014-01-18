@@ -32,6 +32,7 @@
 #include <sound/compress_offload.h>
 #include <sound/compress_driver.h>
 #include <sound/timer.h>
+#include <sound/pcm.h>
 
 #include "msm-pcm-q6.h"
 #include "msm-pcm-routing.h"
@@ -58,7 +59,7 @@ static struct snd_pcm_hardware msm_pcm_hardware = {
 				SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
 	.formats =              SNDRV_PCM_FMTBIT_S16_LE
-				| SNDRV_PCM_FMTBIT_S24_LE,
+				| SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE,
 	.rates =                SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT,
 	.rate_min =             8000,
 	.rate_max =             48000,
@@ -90,10 +91,13 @@ static void event_handler(uint32_t opcode,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct audio_aio_write_param param;
 	struct audio_buffer *buf = NULL;
+	struct output_meta_data_st output_meta_data;
 	unsigned long flag = 0;
 	int i = 0;
+	int stop_playback = 0;
 
 	pr_debug("%s\n", __func__);
+	memset(&output_meta_data, 0x0, sizeof(struct output_meta_data_st));
 	spin_lock_irqsave(&the_locks.event_lock, flag);
 	switch (opcode) {
 	case ASM_DATA_EVENT_WRITE_DONE: {
@@ -101,8 +105,6 @@ static void event_handler(uint32_t opcode,
 		pr_debug("ASM_DATA_EVENT_WRITE_DONE\n");
 		pr_debug("Buffer Consumed = 0x%08x\n", *ptrmem);
 		prtd->pcm_irq_pos += prtd->pcm_count;
-		if (prtd->pcm_irq_pos >= prtd->pcm_size)
-			prtd->pcm_irq_pos = 0;
 		if (atomic_read(&prtd->start))
 			snd_pcm_period_elapsed(substream);
 		else
@@ -118,22 +120,47 @@ static void event_handler(uint32_t opcode,
 			atomic_set(&prtd->pending_buffer, 0);
 
 		buf = prtd->audio_client->port[IN].buf;
+		snd_pcm_stream_lock_irq(substream);
 		if (runtime->status->hw_ptr >= runtime->control->appl_ptr) {
-			memset((void *)buf[0].data +
-				(prtd->out_head * prtd->pcm_count),
-				0, prtd->pcm_count);
+			runtime->render_flag |= SNDRV_RENDER_STOPPED;
+			stop_playback = 1;
 		}
-		pr_debug("%s:writing %d bytes of buffer to dsp 2\n",
-				__func__, prtd->pcm_count);
+		snd_pcm_stream_unlock_irq(substream);
+		if (stop_playback) {
+		    	atomic_set(&prtd->pending_buffer, 1);
+			pr_err("underrun! render stopped\n");
+			break;
+		}
 
-		param.paddr = (unsigned long)buf[0].phys
-				+ (prtd->out_head * prtd->pcm_count);
-		param.len = prtd->pcm_count;
-		param.msw_ts = 0;
-		param.lsw_ts = 0;
+		pr_debug("%s:writing %d bytes of buffer[%d] to dsp 2\n",
+				__func__, prtd->pcm_count, prtd->out_head);
+		pr_debug("%s:writing buffer[%d] from 0x%08x\n",
+				__func__, prtd->out_head,
+				((unsigned int)buf[0].phys
+				+ (prtd->out_head * prtd->pcm_count)));
+
+		if (prtd->meta_data_mode) {
+			memcpy(&output_meta_data, (char *)(buf->data +
+				prtd->out_head * prtd->pcm_count),
+				sizeof(struct output_meta_data_st));
+			param.len = output_meta_data.frame_size;
+		} else {
+			param.len = prtd->pcm_count;
+		}
+
+		pr_debug("meta_data_length: %d, frame_length: %d\n",
+			 output_meta_data.meta_data_length,
+			 output_meta_data.frame_size);
+
+		param.paddr = (unsigned long)buf[0].phys +
+				(prtd->out_head * prtd->pcm_count) +
+				output_meta_data.meta_data_length;
+		param.msw_ts = output_meta_data.timestamp_msw;
+		param.lsw_ts = output_meta_data.timestamp_lsw;
 		param.flags = NO_TIMESTAMP;
-		param.uid =  (unsigned long)buf[0].phys
-				+ (prtd->out_head * prtd->pcm_count);
+		param.uid =  (unsigned long)buf[0].phys +
+				(prtd->out_head * prtd->pcm_count) +
+				output_meta_data.meta_data_length;
 		for (i = 0; i < sizeof(struct audio_aio_write_param)/4;
 					i++, ++ptrmem)
 			pr_debug("cmd[%d]=0x%08x\n", i, *ptrmem);
@@ -158,18 +185,38 @@ static void event_handler(uint32_t opcode,
 			if (!atomic_read(&prtd->pending_buffer))
 				break;
 			if (runtime->status->hw_ptr >=
-				runtime->control->appl_ptr)
+				runtime->control->appl_ptr) {
+				runtime->render_flag |= SNDRV_RENDER_STOPPED;
+				atomic_set(&prtd->pending_buffer, 1);
+				pr_debug("%s:lpa driver underrun\n",
+					 __func__);
 				break;
+			}
 			pr_debug("%s:writing %d bytes"
 				" of buffer to dsp\n",
 				__func__, prtd->pcm_count);
 			buf = prtd->audio_client->port[IN].buf;
-			param.paddr = (unsigned long)buf[prtd->out_head].phys;
-			param.len = prtd->pcm_count;
-			param.msw_ts = 0;
-			param.lsw_ts = 0;
+
+			pr_debug("%s:writing buffer[%d] from 0x%08x\n",
+				__func__, prtd->out_head,
+				((unsigned int)buf[0].phys +
+				(prtd->out_head * prtd->pcm_count)));
+
+			if (prtd->meta_data_mode) {
+				memcpy(&output_meta_data, (char *)(buf->data +
+					prtd->out_head * prtd->pcm_count),
+					sizeof(struct output_meta_data_st));
+				param.len = output_meta_data.frame_size;
+			} else {
+				param.len = prtd->pcm_count;
+			}
+			param.paddr = (unsigned long)buf[prtd->out_head].phys +
+					output_meta_data.meta_data_length;
+			param.msw_ts = output_meta_data.timestamp_msw;
+			param.lsw_ts = output_meta_data.timestamp_lsw;
 			param.flags = NO_TIMESTAMP;
-			param.uid =  (unsigned long)buf[prtd->out_head].phys;
+			param.uid = (unsigned long)buf[prtd->out_head].phys +
+					output_meta_data.meta_data_length;
 			if (q6asm_async_write(prtd->audio_client,
 						&param) < 0)
 				pr_err("%s:q6asm_async_write failed\n",
@@ -231,6 +278,63 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+static int msm_pcm_restart(struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct msm_audio *prtd = runtime->private_data;
+	struct audio_aio_write_param param;
+	struct audio_buffer *buf = NULL;
+	struct output_meta_data_st output_meta_data;
+
+	pr_err("%s\n", __func__);
+	memset(&output_meta_data, 0x0, sizeof(struct output_meta_data_st));
+	if (runtime->render_flag & SNDRV_RENDER_STOPPED) {
+		buf = prtd->audio_client->port[IN].buf;
+
+		pr_debug("%s:writing %d bytes of buffer[%d] to dsp 2\n",
+				__func__, prtd->pcm_count, prtd->out_head);
+		pr_debug("%s:writing buffer[%d] from 0x%08x\n",
+				__func__, prtd->out_head,
+				((unsigned int)buf[0].phys
+				+ (prtd->out_head * prtd->pcm_count)));
+
+		if (prtd->meta_data_mode) {
+			memcpy(&output_meta_data, (char *)(buf->data +
+				prtd->out_head * prtd->pcm_count),
+				sizeof(struct output_meta_data_st));
+			param.len = output_meta_data.frame_size;
+		} else {
+			param.len = prtd->pcm_count;
+		}
+		pr_debug("meta_data_length: %d, frame_length: %d\n",
+			 output_meta_data.meta_data_length,
+			 output_meta_data.frame_size);
+		pr_debug("timestamp_msw: %d, timestamp_lsw: %d\n",
+			 output_meta_data.timestamp_msw,
+			 output_meta_data.timestamp_lsw);
+
+		param.paddr = (unsigned long)buf[0].phys +
+				(prtd->out_head * prtd->pcm_count) +
+				output_meta_data.meta_data_length;
+		param.msw_ts = output_meta_data.timestamp_msw;
+		param.lsw_ts = output_meta_data.timestamp_lsw;
+		param.flags = NO_TIMESTAMP;
+		param.uid =  (unsigned long)buf[0].phys +
+				(prtd->out_head * prtd->pcm_count +
+				output_meta_data.meta_data_length);
+		if (q6asm_async_write(prtd->audio_client, &param) < 0)
+			pr_err("%s:q6asm_async_write failed\n",
+			__func__);
+		else
+			prtd->out_head =
+				(prtd->out_head + 1) & (runtime->periods - 1);
+		atomic_set(&prtd->pending_buffer, 0);
+		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
+		return 0;
+	}
+	return 0;
+}
+
 static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	int ret = 0;
@@ -240,6 +344,7 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		prtd->pcm_irq_pos = 0;
+		atomic_set(&prtd->pending_buffer, 1);
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		pr_debug("SNDRV_PCM_TRIGGER_START\n");
@@ -251,6 +356,7 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		pr_debug("SNDRV_PCM_TRIGGER_STOP\n");
 		atomic_set(&prtd->start, 0);
 		atomic_set(&prtd->stop, 1);
+		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
 		if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
 			break;
 		break;
@@ -259,6 +365,7 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		pr_debug("SNDRV_PCM_TRIGGER_PAUSE\n");
 		q6asm_cmd_nowait(prtd->audio_client, CMD_PAUSE);
 		atomic_set(&prtd->start, 0);
+		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
 		break;
 	default:
 		ret = -EINVAL;
@@ -294,7 +401,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	}
 	runtime->hw = msm_pcm_hardware;
 	prtd->substream = substream;
-
+	runtime->render_flag = SNDRV_DMA_MODE;
 	prtd->audio_client = q6asm_audio_client_alloc(
 				(app_cb)event_handler, prtd);
 	if (!prtd->audio_client) {
@@ -303,6 +410,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	}
 	prtd->audio_client->perf_mode = false;
+	prtd->meta_data_mode = false;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		ret = q6asm_open_write(prtd->audio_client, FORMAT_LINEAR_PCM);
 		if (ret < 0) {
@@ -325,10 +433,9 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	pr_debug("%s: session ID %d\n", __func__, prtd->audio_client->session);
 	prtd->session_id = prtd->audio_client->session;
 	msm_pcm_routing_reg_phy_stream(soc_prtd->dai_link->be_id,
-		
 		prtd->audio_client->perf_mode,
-		
 		prtd->session_id, substream->stream);
+
 	ret = snd_pcm_hw_constraint_list(runtime, 0,
 				SNDRV_PCM_HW_PARAM_RATE,
 				&constraints_sample_rates);
@@ -345,7 +452,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	atomic_set(&prtd->stop, 1);
 	runtime->private_data = prtd;
 	lpa_audio.prtd = prtd;
-	lpa_set_volume(lpa_audio.volume);
+	lpa_set_volume(0);
 	ret = q6asm_set_softpause(lpa_audio.prtd->audio_client, &softpause);
 	if (ret < 0)
 		pr_err("%s: Send SoftPause Param failed ret=%d\n",
@@ -362,7 +469,9 @@ int lpa_set_volume(unsigned volume)
 {
 	int rc = 0;
 	if (lpa_audio.prtd && lpa_audio.prtd->audio_client) {
-		rc = q6asm_set_volume(lpa_audio.prtd->audio_client, volume);
+		rc = q6asm_set_lrgain(lpa_audio.prtd->audio_client,
+					(volume >> 16) & 0xFFFF,
+					volume & 0xFFFF);
 		if (rc < 0) {
 			pr_err("%s: Send Volume command failed"
 					" rc=%d\n", __func__, rc);
@@ -407,6 +516,7 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 		SNDRV_PCM_STREAM_PLAYBACK);
 	pr_debug("%s\n", __func__);
 	q6asm_audio_client_free(prtd->audio_client);
+	prtd->meta_data_mode = false;
 	kfree(prtd);
 
 	return 0;
@@ -436,6 +546,9 @@ static snd_pcm_uframes_t msm_pcm_pointer(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 
+	if (prtd->pcm_irq_pos >= prtd->pcm_size)
+		prtd->pcm_irq_pos = 0;
+
 	pr_debug("%s: pcm_irq_pos = %d\n", __func__, prtd->pcm_irq_pos);
 	return bytes_to_frames(runtime, (prtd->pcm_irq_pos));
 }
@@ -449,6 +562,7 @@ static int msm_pcm_mmap(struct snd_pcm_substream *substream,
 
 	pr_debug("%s\n", __func__);
 	prtd->mmap_flag = 1;
+	runtime->render_flag = SNDRV_NON_DMA_MODE;
 
 	if (runtime->dma_addr && runtime->dma_bytes) {
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
@@ -548,6 +662,14 @@ static int msm_pcm_ioctl(struct snd_pcm_substream *substream,
 			pr_err("Flush cmd timeout\n");
 		prtd->pcm_irq_pos = 0;
 		break;
+	case SNDRV_COMPRESS_METADATA_MODE:
+		if (!atomic_read(&prtd->start)) {
+			pr_debug("Metadata mode enabled\n");
+			prtd->meta_data_mode = true;
+			return 0;
+		}
+		pr_debug("Metadata mode not enabled\n");
+		return -EPERM;
 	case SNDRV_PCM_IOCTL1_ENABLE_EFFECT:
 	{
 		struct param {
@@ -650,6 +772,7 @@ static struct snd_pcm_ops msm_pcm_ops = {
 	.trigger        = msm_pcm_trigger,
 	.pointer        = msm_pcm_pointer,
 	.mmap		= msm_pcm_mmap,
+	.restart	= msm_pcm_restart,
 };
 
 static int msm_asoc_pcm_new(struct snd_soc_pcm_runtime *rtd)

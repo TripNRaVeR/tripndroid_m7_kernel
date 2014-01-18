@@ -1668,9 +1668,12 @@ static int __devinit m7_lcd_probe(struct platform_device *pdev)
 	PR_DISP_INFO("%s\n", __func__);
 	return 0;
 }
-static void m7_display_on(struct msm_fb_data_type *mfd)
+static int m7_display_on(struct platform_device *pdev)
 {
-	
+	struct msm_fb_data_type *mfd;
+
+	mfd = platform_get_drvdata(pdev);
+
 	if (panel_type == PANEL_ID_DLXJ_SHARP_RENESAS ||
 		panel_type == PANEL_ID_DLXJ_SONY_RENESAS ||
 		panel_type == PANEL_ID_M7_SHARP_RENESAS)
@@ -1687,10 +1690,15 @@ static void m7_display_on(struct msm_fb_data_type *mfd)
 	mipi_dsi_cmdlist_put(&cmdreq);
 
 	PR_DISP_INFO("%s\n", __func__);
+	return 0;
 }
 
-static void m7_display_off(struct msm_fb_data_type *mfd)
+static int m7_display_off(struct platform_device *pdev)
 {
+	struct msm_fb_data_type *mfd;
+
+	mfd = platform_get_drvdata(pdev);
+
 	cmdreq.cmds = display_off_cmds;
 	cmdreq.cmds_cnt = display_off_cmds_count;
 	cmdreq.flags = CMD_REQ_COMMIT;
@@ -1703,6 +1711,7 @@ static void m7_display_off(struct msm_fb_data_type *mfd)
 	mipi_dsi_cmdlist_put(&cmdreq);
 
 	PR_DISP_INFO("%s\n", __func__);
+	return 0;
 }
 
 #ifdef CABC_DIMMING_SWITCH
@@ -2248,8 +2257,8 @@ static struct msm_fb_panel_data m7_panel_data = {
 	.on	= m7_lcd_on,
 	.off	= m7_lcd_off,
 	.set_backlight = m7_set_backlight,
-	.display_on = m7_display_on,
-	.display_off = m7_display_off,
+	.late_init = m7_display_on,
+	.early_off = m7_display_off,
 	.color_enhance = m7_color_enhance,
 #ifdef CABC_DIMMING_SWITCH
 	.dimming_on = m7_dim_on,

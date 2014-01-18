@@ -2774,17 +2774,9 @@ static void android_usb_init_work(struct work_struct *data)
 	int ret = 0;
 	__u16 product_id;
 
-#ifdef CONFIG_SENSE_4_PLUS
-	
-	if (board_mfg_mode() != 2) {
-		ret = android_enable_function(dev, "mtp");
-		if (ret)
-			pr_err("android_usb: Cannot enable '%s'", "mtp");
-	}
-#endif
-	ret = android_enable_function(dev, "mass_storage");
+	ret = android_enable_function(dev, "mtp");
 	if (ret)
-		pr_err("android_usb: Cannot enable '%s'", "mass_storage");
+		pr_err("android_usb: Cannot enable '%s'", "mtp");
 
 	ret = android_enable_function(dev, "adb");
 	if (ret)

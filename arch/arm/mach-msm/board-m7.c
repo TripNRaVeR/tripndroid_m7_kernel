@@ -3887,12 +3887,12 @@ static struct mdm_platform_data mdm_platform_data = {
 	.ramdump_timeout_ms = 120000,
 };
 
-static struct tsens_platform_data apq_tsens_pdata  = {
+static struct tsens_platform_data msm_tsens_pdata  = {
 		.tsens_factor		= 1000,
 		.hw_type		= APQ_8064,
 		.patherm0               = -1,
 		.patherm1               = -1,
-		.tsens_num_sensor	= 11,
+		.tsens_num_sensor	= 5,
 		.slope = {1176, 1176, 1154, 1176, 1111,
 			1132, 1132, 1199, 1132, 1199, 1132},
 };
@@ -3904,10 +3904,20 @@ static struct platform_device msm_tsens_device = {
 
 static struct msm_thermal_data msm_thermal_pdata = {
 	.sensor_id = 0,
-	.poll_ms = 1000,
-	.limit_temp = 51,
-	.temp_hysteresis = 10,
-	.limit_freq = 918000,
+	.poll_ms = 150,
+	.shutdown_temp = 80,
+
+	.allowed_max_high = 74,
+	.allowed_max_low = 70,
+	.allowed_max_freq = 384000,
+
+	.allowed_mid_high = 71,
+	.allowed_mid_low = 66,
+	.allowed_mid_freq = 810000,
+
+	.allowed_low_high = 68,
+	.allowed_low_low = 62,
+	.allowed_low_freq = 1350000,
 };
 
 static int __init check_dq_setup(char *str)
@@ -5588,7 +5598,7 @@ static void __init m7_allocate_memory_regions(void)
 static void __init m7_cdp_init(void)
 {
 	pr_info("%s: init starts\r\n", __func__);
-	msm_tsens_early_init(&apq_tsens_pdata);
+	msm_tsens_early_init(&msm_tsens_pdata);
 	m7_common_init();
 	ethernet_init();
 	msm_rotator_set_split_iommu_domain();

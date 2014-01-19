@@ -298,7 +298,6 @@ config EXFAT_VERSION
 
 config ASYNC_FSYNC
 	bool
-	string "asynchronous fsync"
-	default n
+	default y
 
 endmenu

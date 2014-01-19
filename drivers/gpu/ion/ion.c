@@ -1272,9 +1272,9 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ion_client *client = filp->private_data;
 
 	switch (cmd) {
-	case ION_IOC_ALLOC_NEW:
+	case ION_IOC_ALLOC:
 	{
-		struct ion_allocation_data_new data;
+		struct ion_allocation_data data;
 
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;
@@ -1291,9 +1291,9 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	}
-	case ION_IOC_ALLOC:
+	case ION_IOC_ALLOC_OLD:
 	{
-		struct ion_allocation_data data;
+		struct ion_allocation_data_old data;
 
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;

@@ -368,14 +368,14 @@ static inline int msm_ion_do_cache_op(struct ion_client *client,
 struct ion_allocation_data {
 	size_t len;
 	size_t align;
+	unsigned int heap_mask;
 	unsigned int flags;
 	struct ion_handle *handle;
 };
 
-struct ion_allocation_data_new {
+struct ion_allocation_data_old {
 	size_t len;
 	size_t align;
-	unsigned int heap_mask;
 	unsigned int flags;
 	struct ion_handle *handle;
 };
@@ -414,8 +414,8 @@ struct ion_flag_data {
 #define ION_IOC_ALLOC		_IOWR(ION_IOC_MAGIC, 0, \
 				      struct ion_allocation_data)
 
-#define ION_IOC_ALLOC_NEW	_IOWR(ION_IOC_MAGIC, 0, \
-				      struct ion_allocation_data_new)
+#define ION_IOC_ALLOC_OLD	_IOWR(ION_IOC_MAGIC, 0, \
+				      struct ion_allocation_data_old)
 
 #define ION_IOC_FREE		_IOWR(ION_IOC_MAGIC, 1, struct ion_handle_data)
 

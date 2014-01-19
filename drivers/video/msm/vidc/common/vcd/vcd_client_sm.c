@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2013, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -503,7 +503,7 @@ static u32 vcd_set_property_cmn
 
 	rc = ddl_set_property(cctxt->ddl_handle, prop_hdr, prop_val);
 	if (rc) {
-		
+		/* Some properties aren't known to ddl that we can handle */
 		if (prop_hdr->prop_id != VCD_I_VOP_TIMING_CONSTANT_DELTA)
 			VCD_FAILED_RETURN(rc, "Failed: ddl_set_property");
 	}
@@ -543,7 +543,8 @@ static u32 vcd_set_property_cmn
 		}
 	case VCD_I_SET_TURBO_CLK:
 	{
-        rc = vcd_set_perf_turbo_level(cctxt);
+		if (cctxt->sched_clnt_hdl)
+			rc = vcd_set_perf_turbo_level(cctxt);
 		break;
 	}
 	case VCD_I_INTRA_PERIOD:
@@ -593,7 +594,7 @@ static u32 vcd_get_property_cmn
 	}
 	rc = ddl_get_property(cctxt->ddl_handle, prop_hdr, prop_val);
 	if (rc) {
-		
+		/* Some properties aren't known to ddl that we can handle */
 		if (prop_hdr->prop_id != VCD_I_VOP_TIMING_CONSTANT_DELTA)
 			VCD_FAILED_RETURN(rc, "Failed: ddl_set_property");
 	}
@@ -961,6 +962,12 @@ static void vcd_clnt_cb_in_run
 	case VCD_EVT_IND_INFO_OUTPUT_RECONFIG:
 		{
 			vcd_handle_ind_info_output_reconfig(cctxt, status);
+			break;
+		}
+	case VCD_EVT_IND_INFO_LTRUSE_FAILED:
+		{
+			rc = vcd_handle_ltr_use_failed(cctxt,
+					payload, sz, status);
 			break;
 		}
 	default:
@@ -1621,6 +1628,7 @@ void vcd_do_client_state_transition(struct vcd_clnt_ctxt *cctxt,
 	if (!cctxt || to_state >= VCD_CLIENT_STATE_MAX) {
 		VCD_MSG_ERROR("Bad parameters. cctxt=%p, to_state=%d",
 			      cctxt, to_state);
+		return;
 	}
 
 	state_ctxt = &cctxt->clnt_state;
@@ -1743,7 +1751,7 @@ static const struct vcd_clnt_state_table vcd_clnt_table_flushing = {
 	 vcd_get_buffer_requirements_cmn,
 	 NULL,
 	 NULL,
-	 NULL,
+	 vcd_free_buffer_cmn,
 	 vcd_fill_output_buffer_cmn,
 	 vcd_clnt_cb_in_flushing,
 	 },

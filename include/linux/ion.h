@@ -92,6 +92,11 @@ enum cp_mem_usage {
 #define CACHED          1
 #define UNCACHED        0
 
+/* compatibility flags */
+#define ION_FLAG_SECURE ION_SECURE
+#define ION_FLAG_CACHED CACHED
+/* compatibility flags */
+
 #define ION_CACHE_SHIFT 0
 
 #define ION_SET_CACHE(__cache)  ((__cache) << ION_CACHE_SHIFT)
